@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { db } from '../../../server/db';
+import { getDb } from '../../../server/db';
 import { users, phoneAuth } from '../../../drizzle/schema';
 import { eq, and, gt } from 'drizzle-orm';
 
@@ -15,6 +15,11 @@ export async function POST(request: Request) {
   const { searchParams } = new URL(request.url);
   const action = searchParams.get('action');
 
+  const db = await getDb();
+  if (!db) {
+    return NextResponse.json({ success: false, error: 'Database not available' }, { status: 500 });
+  }
+
   try {
     switch (action) {
       case 'send-otp': {
@@ -28,10 +33,8 @@ export async function POST(request: Request) {
         const otp = generateOTP();
         const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
-        // Delete any existing OTPs for this phone
         await db.delete(phoneAuth).where(eq(phoneAuth.phone, normalizedPhone));
 
-        // Insert new OTP
         await db.insert(phoneAuth).values({
           phone: normalizedPhone,
           otp,
@@ -39,14 +42,11 @@ export async function POST(request: Request) {
           verified: 'pending',
         });
 
-        // In production, integrate with SMS provider (Twilio,Msg91,etc.)
-        // For demo, log the OTP
         console.log(`[OTP] Phone: ${normalizedPhone}, OTP: ${otp}`);
 
         return NextResponse.json({ 
           success: true, 
           message: 'OTP sent successfully',
-          // Remove this in production!
           demoOTP: otp 
         });
       }
@@ -75,12 +75,10 @@ export async function POST(request: Request) {
           return NextResponse.json({ success: false, error: 'Invalid or expired OTP' }, { status: 400 });
         }
 
-        // Mark as verified
         await db.update(phoneAuth)
           .set({ verified: 'verified' })
           .where(eq(phoneAuth.id, record[0].id));
 
-        // Find or create user
         let user = await db.select().from(users).where(eq(users.phone, normalizedPhone)).limit(1);
         
         if (user.length === 0) {
@@ -97,7 +95,6 @@ export async function POST(request: Request) {
           user = await db.select().from(users).where(eq(users.phone, normalizedPhone)).limit(1);
         }
 
-        // Create simple token (in production, use proper JWT)
         const token = Buffer.from(JSON.stringify({ 
           userId: user[0].id, 
           phone: normalizedPhone,
@@ -124,7 +121,6 @@ export async function POST(request: Request) {
           return NextResponse.json({ success: false, error: 'Google ID and email required' }, { status: 400 });
         }
 
-        // Find or create user
         let user = await db.select().from(users).where(eq(users.email, email)).limit(1);
         
         if (user.length === 0) {
@@ -141,7 +137,6 @@ export async function POST(request: Request) {
           user = await db.select().from(users).where(eq(users.email, email)).limit(1);
         }
 
-        // Create token
         const token = Buffer.from(JSON.stringify({ 
           userId: user[0].id, 
           email,
@@ -162,7 +157,6 @@ export async function POST(request: Request) {
       }
 
       case 'guest-continue': {
-        // For users who want to try without login
         const guestId = `guest_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
         
         await db.insert(users).values({
