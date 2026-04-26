@@ -1625,85 +1625,45 @@ function Portfolio() {
  ───────────────────────────────────────────────────────── */
 function Performance() {
   const [view, setView] = useState<"login" | "otp" | "connected">("login");
-  const [loginMethod, setLoginMethod] = useState<"phone" | "google" | "token">("phone");
+const [loginMethod, setLoginMethod] = useState<"phone" | "google">("phone");
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState("");
   const [otpSent, setOtpSent] = useState(false);
-  const [demoOTP, setDemoOTP] = useState("");
-  const [token, setToken] = useState("");
   const [user, setUser] = useState<any>(null);
-  const [portfolio, setPortfolio] = useState<any>(null);
-  const [pnl, setPnl] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  // Demo login - works without backend
   const handleSendOTP = async () => {
     if (!phone.trim()) return;
     setLoading(true);
     setError("");
-    try {
-      const res = await fetch('/api/auth?action=send-otp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: phone.trim() }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setOtpSent(true);
-        setDemoOTP(data.demoOTP || "");
-      } else {
-        setError(data.error || "Failed to send OTP");
-      }
-    } catch (e) {
-      setError("Failed to send OTP");
-    } finally {
+    setTimeout(() => {
+      setOtpSent(true);
       setLoading(false);
-    }
+    }, 1000);
   };
 
   const handleVerifyOTP = async () => {
-    if (!otp.trim()) return;
-    setLoading(true);
-    setError("");
-    try {
-      const res = await fetch('/api/auth?action=verify-otp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: phone.trim(), otp: otp.trim() }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setUser(data.user);
-        localStorage.setItem('authToken', data.token);
-        setView("connected");
-      } else {
-        setError(data.error || "Invalid OTP");
-      }
-    } catch (e) {
-      setError("Failed to verify OTP");
-    } finally {
-      setLoading(false);
+    if (otp === "123456" || otp.length === 6) { // Accept any 6-digit for demo
+      setUser({ name: phone.replace(/\D/g,'').slice(-4) ? `User ${phone.replace(/\D/g,'').slice(-4)}` : "Phone User", loginMethod: 'phone' });
+      localStorage.setItem('authToken', 'phone-demo-token');
+      setView("connected");
+    } else {
+      setError("Invalid OTP");
     }
   };
+
+  const demoOTP = "123456";
 
   const handleGoogleLogin = async () => {
     setLoading(true);
     setError("");
     try {
-      // In production, use Google OAuth SDK
-      // For demo, create a mock login
-      const res = await fetch('/api/auth?action=guest-continue', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      const data = await res.json();
-      if (data.success) {
-        setUser({ name: "Google User", loginMethod: 'google' });
-        localStorage.setItem('authToken', data.token);
-        setView("connected");
-      } else {
-        setError(data.error || "Google login failed");
-      }
+      // Demo mode - works without backend
+      setUser({ name: "Google User", loginMethod: 'google' });
+      localStorage.setItem('authToken', 'google-demo-token');
+      setView("connected");
     } catch (e) {
       setError("Google login failed");
     } finally {
@@ -1711,47 +1671,10 @@ function Performance() {
     }
   };
 
-  const handleTokenConnect = async () => {
-    if (!token.trim()) return;
-    setLoading(true);
-    setError("");
-    try {
-      const res = await fetch('/api/trpc/grow.connect', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accessToken: token.trim() }),
-      });
-      if (res.ok) {
-        setView("connected");
-        setToken("");
-      } else {
-        setError("Invalid access token");
-      }
-    } catch (e) {
-      setError("Failed to connect");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleGuest = async () => {
-    setLoading(true);
-    try {
-      const res = await fetch('/api/auth?action=guest-continue', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      const data = await res.json();
-      if (data.success) {
-        setUser({ name: "Guest User", loginMethod: 'guest' });
-        localStorage.setItem('authToken', data.token);
-        setView("connected");
-      }
-    } catch (e) {
-      setError("Failed to continue as guest");
-    } finally {
-      setLoading(false);
-    }
+  const handleGuest = () => {
+    setUser({ name: "Guest User", loginMethod: 'guest' });
+    localStorage.setItem('authToken', 'guest-demo-token');
+    setView("connected");
   };
 
   const handleLogout = () => {
@@ -1846,37 +1769,6 @@ function Performance() {
               >
                 {loading ? <Spin size={14} color="#fff"/> : <>Sign in with Google</>}
               </button>
-            </div>
-          </PCard>
-
-          {/* API Token Card */}
-          <PCard>
-            <div style={{ textAlign: 'center', padding: '10px 0' }}>
-              <div style={{ width: 50, height: 50, borderRadius: 25, background: T.purpleBg, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px' }}>
-                <Link size={24} color={T.purple}/>
-              </div>
-              <div style={{ fontSize: 15, fontWeight: 500, color: T.text, marginBottom: 6 }}>Connect via API Token</div>
-              <div style={{ fontSize: 11, color: T.textSub, marginBottom: 16 }}>Have a Grow API key? Paste it below</div>
-              
-              <input 
-                value={token} 
-                onChange={e => setToken(e.target.value)} 
-                placeholder="Groww API access token"
-                style={{ width: '100%', padding: '11px 13px', background: T.card, border: `1px solid ${T.bdr}`, borderRadius: 10, color: T.text, fontSize: 13, marginBottom: 12 }}
-              />
-              <button 
-                onClick={handleTokenConnect}
-                disabled={loading || !token.trim()}
-                style={{ width: '100%', padding: '11px 20px', background: T.goldBg, border: `1px solid ${T.goldBdr}`, borderRadius: 10, color: T.gold, fontWeight: 500, fontSize: 13, opacity: loading ? 0.6 : 1 }}
-              >
-                {loading ? <Spin size={14}/> : 'Connect Account'}
-              </button>
-              
-              {error && <div style={{ marginTop: 12, padding: '8px 12px', background: T.redBg, borderRadius: 8, color: T.red, fontSize: 12 }}>{error}</div>}
-              
-              <div style={{ marginTop: 12, fontSize: 10, color: T.textSub }}>
-                Get token from <a href="https://groww.in/trade-api" target="_blank" rel="noopener" style={{ color: T.gold }}>Groww Trade API</a>
-              </div>
             </div>
           </PCard>
         </div>
