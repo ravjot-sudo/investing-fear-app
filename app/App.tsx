@@ -1573,16 +1573,97 @@ function Portfolio() {
    PERFORMANCE (GROW API)
  ───────────────────────────────────────────────────────── */
 function Performance() {
-  const [view, setView] = useState("home");
-  const [connected, setConnected] = useState(false);
+  const [view, setView] = useState<"login" | "otp" | "connected">("login");
+  const [loginMethod, setLoginMethod] = useState<"phone" | "google" | "token">("phone");
+  const [phone, setPhone] = useState("");
+  const [otp, setOtp] = useState("");
+  const [otpSent, setOtpSent] = useState(false);
+  const [demoOTP, setDemoOTP] = useState("");
   const [token, setToken] = useState("");
+  const [user, setUser] = useState<any>(null);
   const [portfolio, setPortfolio] = useState<any>(null);
   const [pnl, setPnl] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  const handleConnect = async () => {
+  const handleSendOTP = async () => {
+    if (!phone.trim()) return;
+    setLoading(true);
+    setError("");
+    try {
+      const res = await fetch('/api/auth?action=send-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: phone.trim() }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setOtpSent(true);
+        setDemoOTP(data.demoOTP || "");
+      } else {
+        setError(data.error || "Failed to send OTP");
+      }
+    } catch (e) {
+      setError("Failed to send OTP");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerifyOTP = async () => {
+    if (!otp.trim()) return;
+    setLoading(true);
+    setError("");
+    try {
+      const res = await fetch('/api/auth?action=verify-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: phone.trim(), otp: otp.trim() }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setUser(data.user);
+        localStorage.setItem('authToken', data.token);
+        setView("connected");
+      } else {
+        setError(data.error || "Invalid OTP");
+      }
+    } catch (e) {
+      setError("Failed to verify OTP");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGoogleLogin = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      // In production, use Google OAuth SDK
+      // For demo, create a mock login
+      const res = await fetch('/api/auth?action=guest-continue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const data = await res.json();
+      if (data.success) {
+        setUser({ name: "Google User", loginMethod: 'google' });
+        localStorage.setItem('authToken', data.token);
+        setView("connected");
+      } else {
+        setError(data.error || "Google login failed");
+      }
+    } catch (e) {
+      setError("Google login failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleTokenConnect = async () => {
     if (!token.trim()) return;
     setLoading(true);
+    setError("");
     try {
       const res = await fetch('/api/trpc/grow.connect', {
         method: 'POST',
@@ -1590,59 +1671,234 @@ function Performance() {
         body: JSON.stringify({ accessToken: token.trim() }),
       });
       if (res.ok) {
-        setConnected(true);
+        setView("connected");
         setToken("");
+      } else {
+        setError("Invalid access token");
       }
     } catch (e) {
-      console.error("Failed to connect:", e);
+      setError("Failed to connect");
     } finally {
       setLoading(false);
     }
   };
 
-  if (!connected) {
-    return <div>
-      <SectionHead title="Performance" sub="Connect your Grow account to track real portfolio performance."/>
-      <PCard>
-        <div style={{textAlign:"center",padding:"20px 0"}}>
-          <div style={{width:60,height:60,borderRadius:30,background:T.goldBg,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 16px"}}>
-            <TrendingUp size={28} color={T.gold}/>
-          </div>
-          <div style={{fontSize:16,fontWeight:500,color:T.text,marginBottom:8}}>Connect Grow Account</div>
-          <div style={{fontSize:12,color:T.textSub,marginBottom:20}}>Link your Grow Trading API to see real-time portfolio & P&L</div>
-          <input value={token} onChange={e=>setToken(e.target.value)} placeholder="Paste your Grow API access token"
-            style={{width:"100%",maxWidth:400,padding:"12px 14px",background:T.card,border:`1px solid ${T.bdr}`,borderRadius:10,color:T.text,fontSize:13,marginBottom:12}}
-            onFocus={e=>e.target.style.borderColor=T.goldFoc} onBlur={e=>e.target.style.borderColor=T.bdr}/>
-          <button onClick={handleConnect} disabled={loading}
-            style={{padding:"12px 24px",background:T.goldBg,border:`1px solid ${T.goldBdr}`,borderRadius:10,color:T.gold,fontWeight:500,fontSize:13,display:"flex",alignItems:"center",gap:6,margin:"0 auto",opacity:loading?0.6:1}}>
-            {loading ? <Spin/> : <Link size={14}/>} Connect Account
+  const handleGuest = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/auth?action=guest-continue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const data = await res.json();
+      if (data.success) {
+        setUser({ name: "Guest User", loginMethod: 'guest' });
+        localStorage.setItem('authToken', data.token);
+        setView("connected");
+      }
+    } catch (e) {
+      setError("Failed to continue as guest");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLogout = () => {
+    setUser(null);
+    setView("login");
+    setPhone("");
+    setOtp("");
+    setOtpSent(false);
+    localStorage.removeItem('authToken');
+  };
+
+  // Login Screen
+  if (view === "login") {
+    return (
+      <div>
+        <SectionHead title="Performance" sub="Connect your Grow account to track real portfolio performance"/>
+        
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16 }}>
+          {/* Phone Login Card */}
+          <PCard>
+            <div style={{ textAlign: 'center', padding: '10px 0' }}>
+              <div style={{ width: 50, height: 50, borderRadius: 25, background: T.goldBg, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px' }}>
+                <Shield size={24} color={T.gold}/>
+              </div>
+              <div style={{ fontSize: 15, fontWeight: 500, color: T.text, marginBottom: 6 }}>Login with Phone</div>
+              <div style={{ fontSize: 11, color: T.textSub, marginBottom: 16 }}>Enter your mobile number to get OTP</div>
+              
+              {!otpSent ? (
+                <>
+                  <input 
+                    value={phone} 
+                    onChange={e => setPhone(e.target.value)} 
+                    placeholder="+91 9876543210"
+                    style={{ width: '100%', padding: '11px 13px', background: T.card, border: `1px solid ${T.bdr}`, borderRadius: 10, color: T.text, fontSize: 13, marginBottom: 12 }}
+                  />
+                  <button 
+                    onClick={handleSendOTP} 
+                    disabled={loading || !phone.trim()}
+                    style={{ width: '100%', padding: '11px 20px', background: T.goldBg, border: `1px solid ${T.goldBdr}`, borderRadius: 10, color: T.gold, fontWeight: 500, fontSize: 13, opacity: loading ? 0.6 : 1 }}
+                  >
+                    {loading ? <Spin size={14}/> : 'Send OTP'}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <input 
+                    value={otp} 
+                    onChange={e => setOtp(e.target.value)} 
+                    placeholder="Enter 6-digit OTP"
+                    maxLength={6}
+                    style={{ width: '100%', padding: '11px 13px', background: T.card, border: `1px solid ${T.bdr}`, borderRadius: 10, color: T.text, fontSize: 13, marginBottom: 8, fontFamily: "'JetBrains Mono', monospace", letterSpacing: '0.3em', textAlign: 'center' }}
+                  />
+                  {demoOTP && <div style={{ fontSize: 10, color: T.gold, marginBottom: 12 }}>Demo OTP: {demoOTP}</div>}
+                  <button 
+                    onClick={handleVerifyOTP} 
+                    disabled={loading || otp.length !== 6}
+                    style={{ width: '100%', padding: '11px 20px', background: T.goldBg, border: `1px solid ${T.goldBdr}`, borderRadius: 10, color: T.gold, fontWeight: 500, fontSize: 13, opacity: loading ? 0.6 : 1 }}
+                  >
+                    {loading ? <Spin size={14}/> : 'Verify OTP'}
+                  </button>
+                  <button 
+                    onClick={() => { setOtpSent(false); setOtp(""); }}
+                    style={{ marginTop: 8, padding: '6px 12px', background: 'transparent', border: 'none', color: T.textSub, fontSize: 11, cursor: 'pointer' }}
+                  >
+                    Change number
+                  </button>
+                </>
+              )}
+              
+              {error && <div style={{ marginTop: 12, padding: '8px 12px', background: T.redBg, borderRadius: 8, color: T.red, fontSize: 12 }}>{error}</div>}
+            </div>
+          </PCard>
+
+          {/* Google Login Card */}
+          <PCard>
+            <div style={{ textAlign: 'center', padding: '10px 0' }}>
+              <div style={{ width: 50, height: 50, borderRadius: 25, background: T.blueBg, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px' }}>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                  <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+                  <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+                  <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+                  <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+                </svg>
+              </div>
+              <div style={{ fontSize: 15, fontWeight: 500, color: T.text, marginBottom: 6 }}>Continue with Google</div>
+              <div style={{ fontSize: 11, color: T.textSub, marginBottom: 16 }}>Sign in with your Google account</div>
+              
+              <button 
+                onClick={handleGoogleLogin}
+                disabled={loading}
+                style={{ width: '100%', padding: '11px 20px', background: '#4285F4', border: 'none', borderRadius: 10, color: '#fff', fontWeight: 500, fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, opacity: loading ? 0.6 : 1 }}
+              >
+                {loading ? <Spin size={14} color="#fff"/> : <>Sign in with Google</>}
+              </button>
+            </div>
+          </PCard>
+
+          {/* API Token Card */}
+          <PCard>
+            <div style={{ textAlign: 'center', padding: '10px 0' }}>
+              <div style={{ width: 50, height: 50, borderRadius: 25, background: T.purpleBg, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px' }}>
+                <Link size={24} color={T.purple}/>
+              </div>
+              <div style={{ fontSize: 15, fontWeight: 500, color: T.text, marginBottom: 6 }}>Connect via API Token</div>
+              <div style={{ fontSize: 11, color: T.textSub, marginBottom: 16 }}>Have a Grow API key? Paste it below</div>
+              
+              <input 
+                value={token} 
+                onChange={e => setToken(e.target.value)} 
+                placeholder="Groww API access token"
+                style={{ width: '100%', padding: '11px 13px', background: T.card, border: `1px solid ${T.bdr}`, borderRadius: 10, color: T.text, fontSize: 13, marginBottom: 12 }}
+              />
+              <button 
+                onClick={handleTokenConnect}
+                disabled={loading || !token.trim()}
+                style={{ width: '100%', padding: '11px 20px', background: T.goldBg, border: `1px solid ${T.goldBdr}`, borderRadius: 10, color: T.gold, fontWeight: 500, fontSize: 13, opacity: loading ? 0.6 : 1 }}
+              >
+                {loading ? <Spin size={14}/> : 'Connect Account'}
+              </button>
+              
+              {error && <div style={{ marginTop: 12, padding: '8px 12px', background: T.redBg, borderRadius: 8, color: T.red, fontSize: 12 }}>{error}</div>}
+              
+              <div style={{ marginTop: 12, fontSize: 10, color: T.textSub }}>
+                Get token from <a href="https://groww.in/trade-api" target="_blank" rel="noopener" style={{ color: T.gold }}>Groww Trade API</a>
+              </div>
+            </div>
+          </PCard>
+        </div>
+
+        {/* Guest Option */}
+        <div style={{ textAlign: 'center', marginTop: 24 }}>
+          <button 
+            onClick={handleGuest}
+            style={{ background: 'transparent', border: 'none', color: T.textSub, fontSize: 12, cursor: 'pointer', textDecoration: 'underline' }}
+          >
+            Continue as Guest
           </button>
         </div>
-        <GoldLine/>
-        <div style={{fontSize:10,color:T.textSub,textAlign:"center"}}>
-          Get your token from <a href="https://groww.in/trade-api" target="_blank" rel="noopener" style={{color:T.gold}}>Groww Trade API</a> → API Keys
-        </div>
-      </PCard>
-    </div>;
+      </div>
+    );
   }
 
-  return <div>
-    <SectionHead 
-      title="Performance" 
-      sub="Connected to Grow"
-      action={
-        <button onClick={() => setConnected(false)}
-          style={{padding:"8px 12px",background:`${T.red}18`,border:`1px solid ${T.red}33`,borderRadius:8,color:T.red,fontSize:12}}>
-          Disconnect
-        </button>
-      }
-    />
-    <PCard>
-      <div style={{textAlign:"center",padding:40,color:T.textSub}}>
-        Connect Grow account to view your portfolio performance
+  // Connected Dashboard
+  return (
+    <div>
+      <SectionHead 
+        title="Performance" 
+        sub={user ? `Welcome, ${user.name}` : "Connected to Grow"}
+        action={
+          <button 
+            onClick={handleLogout}
+            style={{ padding: '8px 12px', background: `${T.red}18`, border: `1px solid ${T.red}33`, borderRadius: 8, color: T.red, fontSize: 12 }}
+          >
+            Logout
+          </button>
+        }
+      />
+      
+      {/* User Info */}
+      {user && (
+        <PCard style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ width: 40, height: 40, borderRadius: 20, background: T.goldBg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <span style={{ fontSize: 16 }}>{user.loginMethod === 'google' ? 'G' : user.loginMethod === 'phone' ? '📱' : '👤'}</span>
+          </div>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 500, color: T.text }}>{user.name}</div>
+            <div style={{ fontSize: 11, color: T.textSub }}>Logged in via {user.loginMethod === 'google' ? 'Google' : user.loginMethod === 'phone' ? 'Phone' : 'Guest'}</div>
+          </div>
+        </PCard>
+      )}
+
+      {/* Portfolio Summary */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 16 }}>
+        <PCard>
+          <div style={{ fontSize: 10, color: T.textSub, textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 8 }}>Total Value</div>
+          <div style={{ fontSize: 28, fontWeight: 600, color: T.gold, fontFamily: "'JetBrains Mono', monospace" }}>₹0</div>
+        </PCard>
+        <PCard>
+          <div style={{ fontSize: 10, color: T.textSub, textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 8 }}>Today's P&L</div>
+          <div style={{ fontSize: 28, fontWeight: 600, color: T.green, fontFamily: "'JetBrains Mono', monospace" }}>₹0</div>
+          <div style={{ fontSize: 11, color: T.green }}>+0.00%</div>
+        </PCard>
+        <PCard>
+          <div style={{ fontSize: 10, color: T.textSub, textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 8 }}>Holdings</div>
+          <div style={{ fontSize: 28, fontWeight: 600, color: T.text, fontFamily: "'JetBrains Mono', monospace" }}>0</div>
+          <div style={{ fontSize: 11, color: T.textSub }}>stocks</div>
+        </PCard>
       </div>
-    </PCard>
-  </div>;
+
+      <PCard>
+        <div style={{ textAlign: 'center', padding: '30px 0', color: T.textSub }}>
+          <TrendingUp size={32} style={{ marginBottom: 12, opacity: 0.5 }}/>
+          <div style={{ fontSize: 14 }}>Connect your Grow account to see real portfolio & P&L</div>
+          <div style={{ fontSize: 11, marginTop: 8, color: T.textMute }}>Go to Groww Trade API to generate your API key</div>
+        </div>
+      </PCard>
+    </div>
+  );
 }
 
 /* ─────────────────────────────────────────────────────────
