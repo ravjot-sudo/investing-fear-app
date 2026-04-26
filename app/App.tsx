@@ -24,7 +24,7 @@ import {
   Shield, Target, Sparkles, ChevronRight, Zap, AlertTriangle,
   PieChart as PieIcon, Award, Plus, X, Globe, Gauge,
   Activity, RefreshCw, Building2, DollarSign, BarChart3,
-  ChevronDown, Star, Clock, Info, Link,
+  ChevronDown, Star, Clock, Info, Link, Newspaper,
 } from "lucide-react";
 
 /* ─────────────────────────────────────────────────────────
@@ -57,6 +57,25 @@ const fhCandles  = (s, res="D", days=90) => {
 const fhMetrics  = (s) => cached(`metrics:${s}`, 3600000, () => fhFetch(`/stock/metric?symbol=${s}&category=all`));
 const fhNews     = (s) => cached(`news:${s}`, 300000, () =>
   fhFetch(`/company-news?symbol=${s}&from=${new Date(Date.now()-7*86400000).toISOString().slice(0,10)}&to=${new Date().toISOString().slice(0,10)}`));
+
+/* ─────────────────────────────────────────────────────────
+   MONEYCONTROL NEWS API
+──────────────────────────────────────────────────────── */
+const mcCache = new Map();
+function mcCached(key, fn) {
+  const hit = mcCache.get(key);
+  if (hit && Date.now() - hit.ts < 300000) return Promise.resolve(hit.data);
+  return fn().then(data => { mcCache.set(key, { data, ts: Date.now() }); return data; });
+}
+
+const fetchMoneycontrolNews = (type = 'news') => 
+  mcCached(`mc:${type}`, () => 
+    fetch(`/api/moneycontrol?type=${type}`).then(r => r.ok ? r.json() : null).catch(() => null)
+  );
+
+const mcGetNews = () => fetchMoneycontrolNews('news');
+const mcGetLatestNews = () => fetchMoneycontrolNews('latest');
+const mcGetBusinessNews = () => fetchMoneycontrolNews('business');
 
 /* ─────────────────────────────────────────────────────────
    DESIGN TOKENS — Obsidian × Gold
@@ -315,6 +334,7 @@ const NAV_ITEMS = [
   {id:"home",     label:"Home",      Icon:LayoutDashboard},
   {id:"market",   label:"Market",    Icon:Globe},
   {id:"analyze",  label:"Analyze",   Icon:Search},
+  {id:"news",     label:"News",      Icon:Newspaper},
   {id:"simulate", label:"Simulate",  Icon:Calculator},
   {id:"portfolio",label:"Portfolio", Icon:PieIcon},
   {id:"grow",     label:"Performance",Icon:TrendingUp},
@@ -985,14 +1005,198 @@ IMPORTANT: Return ONLY valid JSON — no markdown, no backticks, no text before 
             </PCard>
           )) : <PCard style={{textAlign:"center",padding:30,color:T.textSub,fontSize:13}}>No recent news available for {sym}.</PCard>}
         </div>}
-      </>}
+</>}
     </>}
   </div>;
 }
 
 /* ─────────────────────────────────────────────────────────
+   MONEYCONTROL NEWS PANEL
+──────────────────────────────────────────────────────── */
+function NewsPanel() {
+  const [activeTab, setActiveTab] = useState<'news' | 'latest' | 'business'>('news');
+  const [newsData, setNewsData] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+
+  const fetchNews = useCallback(async () => {
+    setLoading(true);
+    setError(false);
+    try {
+      const data = await fetchMoneycontrolNews(activeTab);
+      if (data?.data) {
+        setNewsData(data.data);
+        setLastUpdate(new Date());
+      } else {
+        setError(true);
+      }
+    } catch (e) {
+      setError(true);
+    }
+    setLoading(false);
+  }, [activeTab]);
+
+  useEffect(() => {
+    fetchNews();
+    const interval = setInterval(fetchNews, 60000);
+    return () => clearInterval(interval);
+  }, [fetchNews]);
+
+  const tabs = [
+    { id: 'news', label: 'All News' },
+    { id: 'latest', label: 'Latest' },
+    { id: 'business', label: 'Business' },
+  ] as const;
+
+  const formatDate = (dateStr: string) => {
+    try {
+      const date = new Date(dateStr);
+      return date.toLocaleDateString('en-IN', { 
+        day: 'numeric', 
+        month: 'short', 
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch {
+      return dateStr;
+    }
+  };
+
+  return (
+    <div>
+      <SectionHead 
+        title="Market News" 
+        sub="Real-time financial news from Moneycontrol • Auto-refreshes every 60 seconds"
+      />
+      
+      <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+        {tabs.map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            style={{
+              padding: '8px 16px',
+              borderRadius: 8,
+              border: `1px solid ${activeTab === tab.id ? T.gold : T.bdr}`,
+              background: activeTab === tab.id ? T.goldBg : 'transparent',
+              color: activeTab === tab.id ? T.gold : T.textSub,
+              fontSize: 12,
+              fontWeight: 500,
+              cursor: 'pointer',
+              transition: 'all .15s',
+            }}
+          >
+            {tab.label}
+          </button>
+        ))}
+        <button
+          onClick={fetchNews}
+          style={{
+            padding: '8px 12px',
+            borderRadius: 8,
+            border: `1px solid ${T.bdr}`,
+            background: 'transparent',
+            color: T.textSub,
+            fontSize: 12,
+            cursor: 'pointer',
+            marginLeft: 'auto',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+          }}
+        >
+          <RefreshCw size={12} /> Refresh
+        </button>
+      </div>
+
+      {lastUpdate && (
+        <div style={{ fontSize: 10, color: T.textMute, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Clock size={10} /> Last updated: {lastUpdate.toLocaleTimeString()}
+        </div>
+      )}
+
+      {loading && (
+        <PCard style={{ textAlign: 'center', padding: 50 }}>
+          <Spin size={28} />
+          <p style={{ marginTop: 14, fontFamily: "'Cormorant Garamond',serif", fontSize: 18, color: T.textSub }}>
+            Fetching latest news...
+          </p>
+        </PCard>
+      )}
+
+      {error && (
+        <PCard style={{ textAlign: 'center', padding: 30, background: T.redBg, borderColor: T.red }}>
+          <AlertTriangle size={24} color={T.red} style={{ marginBottom: 10 }} />
+          <p style={{ color: T.red, fontSize: 14 }}>Unable to load news. Please try again.</p>
+          <button
+            onClick={fetchNews}
+            style={{
+              marginTop: 12,
+              padding: '8px 16px',
+              borderRadius: 8,
+              border: 'none',
+              background: T.red,
+              color: '#fff',
+              fontSize: 12,
+              cursor: 'pointer',
+            }}
+          >
+            Retry
+          </button>
+        </PCard>
+      )}
+
+      {!loading && !error && newsData.length === 0 && (
+        <PCard style={{ textAlign: 'center', padding: 30, color: T.textSub }}>
+          No news available at the moment.
+        </PCard>
+      )}
+
+      {!loading && !error && newsData.length > 0 && (
+        <div style={{ display: 'grid', gap: 12 }}>
+          {newsData.slice(0, 20).map((item, i) => (
+            <PCard key={i} style={{ padding: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                <span style={{ fontSize: 10, color: T.gold, textTransform: 'uppercase', letterSpacing: '.08em' }}>
+                  {item['News Type:'] || 'News'}
+                </span>
+                <span style={{ fontSize: 10, color: T.textSub, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <Clock size={10} /> {formatDate(item['Date:'] || '')}
+                </span>
+              </div>
+              <a
+                href={item['Link:']}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  color: T.text,
+                  fontSize: 14,
+                  fontWeight: 500,
+                  textDecoration: 'none',
+                  lineHeight: 1.5,
+                  display: 'block',
+                  marginBottom: 8,
+                }}
+              >
+                {item['Title:']}
+              </a>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Link size={10} color={T.textMute} />
+                <span style={{ fontSize: 10, color: T.textMute }}>moneycontrol.com</span>
+              </div>
+            </PCard>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────
    SIMULATOR
-───────────────────────────────────────────────────────── */
+──────────────────────────────────────────────────────── */
 function Simulator() {
   const [pr,   setPr]   = useState(100000);
   const [mo,   setMo]   = useState(5000);
@@ -1456,6 +1660,7 @@ export default function App() {
     home:     <Home      setView={nav}   setAnalyzeTarget={goAnalyze}/>,
     market:   <Market    setView={nav}   setAnalyzeTarget={goAnalyze}/>,
     analyze:  <Analyzer  targetSym={analyzeTarget} setTargetSym={setAnalyzeTarget}/>,
+    news:     <NewsPanel/>,
     simulate: <Simulator/>,
     portfolio:<Portfolio/>,
     grow:     <Performance/>,

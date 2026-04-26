@@ -15,7 +15,9 @@ export const users = mysqlTable("users", {
   openId: varchar("openId", { length: 64 }).notNull().unique(),
   name: text("name"),
   email: varchar("email", { length: 320 }),
+  phone: varchar("phone", { length: 20 }),
   loginMethod: varchar("loginMethod", { length: 64 }),
+  avatarUrl: text("avatarUrl"),
   role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
@@ -99,3 +101,16 @@ export const growAccounts = mysqlTable("growAccounts", {
 
 export type GrowAccount = typeof growAccounts.$inferSelect;
 export type InsertGrowAccount = typeof growAccounts.$inferInsert;
+
+// Phone-based OTP authentication
+export const phoneAuth = mysqlTable("phoneAuth", {
+  id: int("id").autoincrement().primaryKey(),
+  phone: varchar("phone", { length: 20 }).notNull(),
+  otp: varchar("otp", { length: 6 }).notNull(),
+  expiresAt: timestamp("expiresAt").notNull(),
+  verified: mysqlEnum("verified", ["pending", "verified"]).default("pending").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type PhoneAuth = typeof phoneAuth.$inferSelect;
+export type InsertPhoneAuth = typeof phoneAuth.$inferInsert;
