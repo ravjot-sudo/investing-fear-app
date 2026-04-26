@@ -16,7 +16,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import {
   AreaChart, Area, PieChart, Pie, Cell, BarChart, Bar,
-  XAxis, YAxis, Tooltip, ResponsiveContainer, ComposedChart, Line,
+  XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from "recharts";
 import {
   LayoutDashboard, Search, Calculator, MessageSquare, BookOpen,
@@ -175,7 +175,7 @@ function genFallbackHistory(base, days=90, vol=0.018) {
     p*=(1+0.0004+(Math.random()-.47)*vol); p=Math.max(p,base*.3);
     if(i===0)p=base;
     if(i%3===0||i===0){const d=new Date(now);d.setDate(d.getDate()-i);
-      out.push({d:d.toLocaleDateString("en-US",{month:"short",day:"numeric"}),p:Math.round(p*100)/100,v:Math.round(Math.random()*1e8)});}
+      out.push({d:d.toLocaleDateString("en-US",{month:"short",day:"numeric"}),c:Math.round(p*100)/100,p:Math.round(p*100)/100,v:Math.round(Math.random()*1e8)});}
   }
   return out;
 }
@@ -770,24 +770,10 @@ IMPORTANT: Return ONLY valid JSON — no markdown, no backticks, no text before 
 
   const ChartTip = ({active,payload}: any) => {
     if(!active||!payload?.length) return null;
-    return <div style={{background:T.surface,border:`1px solid ${T.bdrHi}`,borderRadius:8,padding:"8px 12px",fontSize:11}}>
-      <div style={{color:T.textSub,marginBottom:3}}>{payload[0]?.payload?.d}</div>
-      <div style={{color:T.gold,fontFamily:"'JetBrains Mono',monospace",fontWeight:500}}>{sym&&fmt(payload[0]?.value,sym)}</div>
-    </div>;
-  };
-
-  const CandleTip = ({active,payload}: any) => {
-    if(!active||!payload?.length) return null;
     const d = payload[0]?.payload;
-    if(!d) return null;
-    return <div style={{background:T.surface,border:`1px solid ${T.bdrHi}`,borderRadius:8,padding:"10px 12px",fontSize:11}}>
-      <div style={{color:T.textSub,marginBottom:6}}>{d.d}</div>
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'4px 12px',fontFamily:"'JetBrains Mono',monospace"}}>
-        <span style={{color:T.textMute}}>O:</span><span style={{color:T.text}}>{d.o?.toFixed(2)}</span>
-        <span style={{color:T.textMute}}>H:</span><span style={{color:T.green}}>{d.h?.toFixed(2)}</span>
-        <span style={{color:T.textMute}}>L:</span><span style={{color:T.red}}>{d.l?.toFixed(2)}</span>
-        <span style={{color:T.textMute}}>C:</span><span style={{color:T.gold}}>{d.c?.toFixed(2)}</span>
-      </div>
+    return <div style={{background:T.surface,border:`1px solid ${T.bdrHi}`,borderRadius:8,padding:"8px 12px",fontSize:11}}>
+      <div style={{color:T.textSub,marginBottom:3}}>{d?.d}</div>
+      <div style={{color:T.gold,fontFamily:"'JetBrains Mono',monospace",fontWeight:500}}>{d?.c ? fmt(d.c, sym) : '—'}</div>
     </div>;
   };
 
@@ -892,26 +878,29 @@ IMPORTANT: Return ONLY valid JSON — no markdown, no backticks, no text before 
         </div>}
       </PCard>
 
-      {/* Price chart — TradingView style candlesticks */}
+      {/* Price chart - simple area chart */}
       <PCard style={{marginBottom:14}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
           <div style={{fontSize:10,color:T.textSub,textTransform:"uppercase",letterSpacing:".1em",fontWeight:500}}>
-            90-Day Price History {candles.length>0&&!dataErr?"· Live Candles":"· Simulated"}
+            90-Day Price History
           </div>
           {quote?.price && <div style={{fontSize:10,color:T.green,fontFamily:"'JetBrains Mono',monospace",fontWeight:500}}>
             {displayChange>=0?"+":""}{displayChange?.toFixed(2)}% today
           </div>}
         </div>
         {candles.length>0 ? <ResponsiveContainer width="100%" height={160}>
-          <ComposedChart data={candles}>
+          <AreaChart data={candles}>
+            <defs>
+              <linearGradient id="cg" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={T.gold} stopOpacity={.28}/>
+                <stop offset="100%" stopColor={T.gold} stopOpacity={0}/>
+              </linearGradient>
+            </defs>
             <XAxis dataKey="d" tick={{fill:T.textMute,fontSize:9}} tickLine={false} axisLine={false} interval={Math.floor(candles.length/6)}/>
             <YAxis hide domain={["auto","auto"]}/>
-            <Tooltip content={<CandleTip/>}/>
-            <Bar dataKey="h" barSize={6}>
-              {candles.map((entry, i) => <Cell key={i} fill={entry.c >= entry.o ? T.green : T.red}/>)}
-            </Bar>
-            <Line type="monotone" dataKey="c" stroke={T.gold} strokeWidth={1.5} dot={false}/>
-          </ComposedChart>
+            <Tooltip content={<ChartTip/>}/>
+            <Area type="monotone" dataKey="c" stroke={T.gold} strokeWidth={1.8} fill="url(#cg)" dot={false}/>
+          </AreaChart>
         </ResponsiveContainer> : <div className="skeleton" style={{height:160,borderRadius:8}}/>}
       </PCard>
 
