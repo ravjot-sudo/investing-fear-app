@@ -16,7 +16,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import {
   AreaChart, Area, PieChart, Pie, Cell, BarChart, Bar,
-  XAxis, YAxis, Tooltip, ResponsiveContainer,
+  XAxis, YAxis, Tooltip, ResponsiveContainer, ComposedChart, Line,
 } from "recharts";
 import {
   LayoutDashboard, Search, Calculator, MessageSquare, BookOpen,
@@ -59,23 +59,44 @@ const fhNews     = (s) => cached(`news:${s}`, 300000, () =>
   fhFetch(`/company-news?symbol=${s}&from=${new Date(Date.now()-7*86400000).toISOString().slice(0,10)}&to=${new Date().toISOString().slice(0,10)}`));
 
 /* ─────────────────────────────────────────────────────────
-   MONEYCONTROL NEWS API
+   FINNHUB NEWS + GEMINI AI
 ──────────────────────────────────────────────────────── */
+const FH_NEWS = "https://finnhub.io/api/v1";
 const mcCache = new Map();
+
 function mcCached(key, fn) {
   const hit = mcCache.get(key);
   if (hit && Date.now() - hit.ts < 300000) return Promise.resolve(hit.data);
   return fn().then(data => { mcCache.set(key, { data, ts: Date.now() }); return data; });
 }
 
-const fetchMoneycontrolNews = (type = 'news') => 
-  mcCached(`mc:${type}`, () => 
-    fetch(`/api/moneycontrol?type=${type}`).then(r => r.ok ? r.json() : null).catch(() => null)
+const fetchFinnhubNews = (category = 'general') => 
+  mcCached(`fh:${category}`, () => 
+    fetch(`${FH_NEWS}/news?category=${category}&token=${FKEY}`).then(r => r.ok ? r.json() : null).catch(() => null)
   );
 
-const mcGetNews = () => fetchMoneycontrolNews('news');
-const mcGetLatestNews = () => fetchMoneycontrolNews('latest');
-const mcGetBusinessNews = () => fetchMoneycontrolNews('business');
+let GEMINI_KEY_SET = false;
+const setGeminiKey = (key: string) => { GEMINI_KEY_SET = !!key; };
+
+const callGeminiAI = async (prompt: string) => {
+  if (!GEMINI_KEY_SET) return '';
+  const key = localStorage.getItem('gemini_api_key');
+  if (!key) return '';
+  try {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.7, maxOutputTokens: 1024 } })
+    });
+    if (!response.ok) throw new Error('Gemini API failed');
+    const data = await response.json();
+    return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  } catch (e) { console.error('Gemini error:', e); return ''; }
+};
+
+const mcGetNews = () => fetchFinnhubNews('general');
+const mcGetLatestNews = () => fetchFinnhubNews('forex');
+const mcGetBusinessNews = () => fetchFinnhubNews('crypto');
 
 /* ─────────────────────────────────────────────────────────
    DESIGN TOKENS — Obsidian × Gold
@@ -604,10 +625,11 @@ function Analyzer({ targetSym, setTargetSym }) {
   const [sym,      setSym]      = useState(null);
   const [quote,    setQuote]    = useState(null);
   const [profile,  setProfile]  = useState(null);
-  const [candles,  setCandles]  = useState([]);
+  const [candles,  setCandles]  = useState<any[]>([]);
   const [metrics,  setMetrics]  = useState(null);
   const [news,     setNews]     = useState([]);
   const [analysis, setAnalysis] = useState(null);
+  const [aiRec,    setAiRec]    = useState<any>(null);
   const [loading,  setLoading]  = useState(false);
   const [aiLoad,   setAiLoad]   = useState(false);
   const [q,        setQ]        = useState("");
@@ -670,7 +692,7 @@ function Analyzer({ targetSym, setTargetSym }) {
       if (candle?.c && candle.c.length > 1) {
         const pts = candle.t.map((ts, i) => ({
           d: new Date(ts*1000).toLocaleDateString("en-US",{month:"short",day:"numeric"}),
-          p: Math.round(candle.c[i]*100)/100,
+          o: candle.o[i], h: candle.h[i], l: candle.l[i], c: candle.c[i],
           v: candle.v?.[i] || 0,
         }));
         setCandles(pts);
@@ -751,6 +773,21 @@ IMPORTANT: Return ONLY valid JSON — no markdown, no backticks, no text before 
     return <div style={{background:T.surface,border:`1px solid ${T.bdrHi}`,borderRadius:8,padding:"8px 12px",fontSize:11}}>
       <div style={{color:T.textSub,marginBottom:3}}>{payload[0]?.payload?.d}</div>
       <div style={{color:T.gold,fontFamily:"'JetBrains Mono',monospace",fontWeight:500}}>{sym&&fmt(payload[0]?.value,sym)}</div>
+    </div>;
+  };
+
+  const CandleTip = ({active,payload}: any) => {
+    if(!active||!payload?.length) return null;
+    const d = payload[0]?.payload;
+    if(!d) return null;
+    return <div style={{background:T.surface,border:`1px solid ${T.bdrHi}`,borderRadius:8,padding:"10px 12px",fontSize:11}}>
+      <div style={{color:T.textSub,marginBottom:6}}>{d.d}</div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'4px 12px',fontFamily:"'JetBrains Mono',monospace"}}>
+        <span style={{color:T.textMute}}>O:</span><span style={{color:T.text}}>{d.o?.toFixed(2)}</span>
+        <span style={{color:T.textMute}}>H:</span><span style={{color:T.green}}>{d.h?.toFixed(2)}</span>
+        <span style={{color:T.textMute}}>L:</span><span style={{color:T.red}}>{d.l?.toFixed(2)}</span>
+        <span style={{color:T.textMute}}>C:</span><span style={{color:T.gold}}>{d.c?.toFixed(2)}</span>
+      </div>
     </div>;
   };
 
@@ -855,27 +892,43 @@ IMPORTANT: Return ONLY valid JSON — no markdown, no backticks, no text before 
         </div>}
       </PCard>
 
-      {/* Price chart — real Finnhub candles */}
+      {/* Price chart — TradingView style candlesticks */}
       <PCard style={{marginBottom:14}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
           <div style={{fontSize:10,color:T.textSub,textTransform:"uppercase",letterSpacing:".1em",fontWeight:500}}>
-            90-Day Price History {candles.length>0&&!dataErr?"· Finnhub Candles":"· Simulated"}
+            90-Day Price History {candles.length>0&&!dataErr?"· Live Candles":"· Simulated"}
           </div>
           {quote?.price && <div style={{fontSize:10,color:T.green,fontFamily:"'JetBrains Mono',monospace",fontWeight:500}}>
             {displayChange>=0?"+":""}{displayChange?.toFixed(2)}% today
           </div>}
         </div>
-        {candles.length>0 ? <ResponsiveContainer width="100%" height={150}>
-          <AreaChart data={candles}>
-            <defs><linearGradient id="cg" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={T.gold} stopOpacity={.28}/><stop offset="100%" stopColor={T.gold} stopOpacity={0}/>
-            </linearGradient></defs>
+        {candles.length>0 ? <ResponsiveContainer width="100%" height={160}>
+          <ComposedChart data={candles}>
             <XAxis dataKey="d" tick={{fill:T.textMute,fontSize:9}} tickLine={false} axisLine={false} interval={Math.floor(candles.length/6)}/>
             <YAxis hide domain={["auto","auto"]}/>
-            <Tooltip content={<ChartTip/>}/>
-            <Area type="monotone" dataKey="p" stroke={T.gold} strokeWidth={1.8} fill="url(#cg)" dot={false}/>
-          </AreaChart>
-        </ResponsiveContainer> : <div className="skeleton" style={{height:150,borderRadius:8}}/>}
+            <Tooltip content={<CandleTip/>}/>
+            <Bar dataKey="h" barSize={6}>
+              {candles.map((entry, i) => <Cell key={i} fill={entry.c >= entry.o ? T.green : T.red}/>)}
+            </Bar>
+            <Line type="monotone" dataKey="c" stroke={T.gold} strokeWidth={1.5} dot={false}/>
+          </ComposedChart>
+        </ResponsiveContainer> : <div className="skeleton" style={{height:160,borderRadius:8}}/>}
+      </PCard>
+
+      {/* AI Recommendation */}
+      <PCard style={{marginBottom:14, background:T.goldBg, borderColor:T.goldBdr}}>
+        <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:10}}>
+          <Sparkles size={18} color={T.gold}/>
+          <span style={{fontSize:11,color:T.gold,textTransform:'uppercase',letterSpacing:'.1em',fontWeight:600}}>AI Buy/Sell Recommendation</span>
+        </div>
+        {aiLoad ? <div style={{textAlign:'center',padding:20}}><Spin size={16}/><p style={{fontSize:11,color:T.textSub,marginTop:8}}>Analyzing...</p></div> : 
+         aiRec ? <div>
+           <span style={{padding:'4px 12px',borderRadius:12,fontSize:12,fontWeight:600,background:aiRec.recommendation==='BUY'?T.green:aiRec.recommendation==='SELL'?T.red:T.gold,color:'#fff'}}>{aiRec.recommendation}</span>
+           <span style={{marginLeft:10,fontSize:12,color:T.textSub}}>{aiRec.confidence}% confidence</span>
+           <p style={{fontSize:12,color:T.text, marginTop:8,lineHeight:1.5}}>{aiRec.reasoning}</p>
+         </div> : <p style={{fontSize:11,color:T.textSub}}>Enter Gemini API key and click below for AI recommendation</p>}
+        {!GEMINI_KEY_SET ? <button onClick={()=>{const k=prompt('Enter Gemini API Key:');if(k){localStorage.setItem('gemini_api_key',k);setGeminiKey(k);}}} style={{marginTop:10,width:'100%',padding:'8px 12px',borderRadius:6,border:'none',background:T.gold,color:T.bgDeep,fontSize:11,fontWeight:600,cursor:'pointer'}}>Enter API Key</button> :
+         <button onClick={async()=>{setAiLoad(true);const data=candles.slice(-30).map(c=>`${c.d}: O=${c.o?.toFixed(2)} H=${c.h?.toFixed(2)} L=${c.l?.toFixed(2)} C=${c.c?.toFixed(2)}`).join('\n');const prompt_=`Analyze ${sym} price data:\n\nCurrent: $${quote?.price} (${quote?.ch}%)\n\n${data}\n\nRespond JSON: {"recommendation":"BUY/SELL/HOLD","confidence":80,"reasoning":"...","entryPrice":"$...","targetPrice":"$..."}`;try{const r=await callGeminiAI(prompt_);const rec=JSON.parse(r.replace(/^[^{]*/,'').replace(/[^}]*$/,''));setAiRec(rec);}catch(e){setAiRec({recommendation:'HOLD',confidence:60,reasoning:'Not enough data to recommend',entryPrice:`$${quote?.price?.toFixed(2)}`,targetPrice:`$${quote?.price?.toFixed(2)}`});}setAiLoad(false);}} disabled={aiLoad||!quote} style={{marginTop:10,width:'100%',padding:'8px 12px',borderRadius:6,border:'none',background:T.gold,color:T.bgDeep,fontSize:11,fontWeight:600,cursor:aiLoad?'not-allowed':'pointer',opacity:aiLoad?0.6:1}}>Get AI Recommendation</button>}
       </PCard>
 
       {/* Tabs */}
@@ -1024,9 +1077,10 @@ function NewsPanel() {
     setLoading(true);
     setError(false);
     try {
-      const data = await fetchMoneycontrolNews(activeTab);
-      if (data?.data) {
-        setNewsData(data.data);
+      const catMap: Record<string,string> = { news: 'general', latest: 'forex', business: 'crypto' };
+      const data = await fetchFinnhubNews(catMap[activeTab] || 'general');
+      if (Array.isArray(data)) {
+        setNewsData(data.slice(0, 20));
         setLastUpdate(new Date());
       } else {
         setError(true);
@@ -1160,14 +1214,14 @@ function NewsPanel() {
             <PCard key={i} style={{ padding: 16 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
                 <span style={{ fontSize: 10, color: T.gold, textTransform: 'uppercase', letterSpacing: '.08em' }}>
-                  {item['News Type:'] || 'News'}
+                  {item.source || 'News'}
                 </span>
                 <span style={{ fontSize: 10, color: T.textSub, display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <Clock size={10} /> {formatDate(item['Date:'] || '')}
+                  <Clock size={10} /> {item.datetime ? new Date(item.datetime * 1000).toLocaleDateString() : ''}
                 </span>
               </div>
               <a
-                href={item['Link:']}
+                href={item.url}
                 target="_blank"
                 rel="noopener noreferrer"
                 style={{
@@ -1180,12 +1234,9 @@ function NewsPanel() {
                   marginBottom: 8,
                 }}
               >
-                {item['Title:']}
+                {item.headline}
               </a>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <Link size={10} color={T.textMute} />
-                <span style={{ fontSize: 10, color: T.textMute }}>moneycontrol.com</span>
-              </div>
+              <p style={{ fontSize: 12, color: T.textSub, lineHeight: 1.55, margin: 0 }}>{(item.summary || "").slice(0, 160)}{item.summary?.length > 160 ? "…" : ""}</p>
             </PCard>
           ))}
         </div>
